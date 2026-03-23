@@ -1,0 +1,48 @@
+# ML Fault Segmentation — Configuration
+
+study_region:
+  name: "Southern California"
+  minlatitude: 32.0
+  maxlatitude: 37.0
+  minlongitude: -121.0
+  maxlongitude: -114.0
+  utm_crs: "EPSG:32611"
+
+catalog:
+  starttime: "2010-01-01"
+  endtime: "2023-12-31"
+  api_url: "https://earthquake.usgs.gov/fdsnws/event/1/query"
+  backup_api: "https://service.scedc.caltech.edu/fdsn/event/1/query"
+
+quality_filters:
+  minmagnitude: 1.0
+  max_horizontal_error_km: 1.0
+  max_depth_error_km: 2.0
+  min_stations: 8
+
+clustering:
+  depth_weight: 2.0
+  parameter_sweep:
+    min_cluster_sizes: [50, 100, 200, 500]
+    min_samples_list: [5, 10, 20]
+  optimal:
+    min_cluster_size: 100
+    min_samples: 10
+  cluster_selection_epsilon: 2000.0  # meters
+  cluster_selection_method: "eom"
+
+fault_geometry:
+  min_events_for_plane: 50
+  surface_projection_sigma: 2.0
+
+fault_comparison:
+  matched_distance_km: 5.0
+  partial_distance_km: 15.0
+  matched_strike_deg: 20.0
+  partial_strike_deg: 40.0
+  priority_unmapped_min_events: 200
+
+paths:
+  data_dir: "data"
+  results_dir: "results"
+  qffdb_url: "https://earthquake.usgs.gov/static/lfs/nshm/qfaults/Qfaults_GIS_2021_new.zip"
