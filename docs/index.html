@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ML Fault Segmentation — Southern California</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:#0d1117; color:#c9d1d9; }
+  header {
+    background:linear-gradient(135deg,#1a1a2e,#12172b);
+    padding:2rem 2rem 1.5rem; border-bottom:1px solid #21262d;
+  }
+  header h1 { font-size:1.9rem; color:#f0f6fc; font-weight:700; }
+  header p { margin-top:0.4rem; color:#8b949e; max-width:680px; line-height:1.5; }
+  .badges { margin-top:0.8rem; display:flex; gap:0.4rem; flex-wrap:wrap; }
+  .badge { padding:0.18rem 0.6rem; border-radius:20px; font-size:0.72rem; font-weight:600; }
+
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:#21262d; }
+  .stat { background:#161b22; padding:0.9rem 1.2rem; }
+  .stat-label { font-size:0.68rem; color:#8b949e; text-transform:uppercase; letter-spacing:0.06em; }
+  .stat-value { font-size:1.35rem; font-weight:700; color:#58a6ff; margin-top:0.15rem; }
+
+  .layout { display:grid; grid-template-columns:1fr 350px; height:calc(100vh - 210px); min-height:480px; }
+  #map { width:100%; height:100%; }
+  .sidebar { background:#161b22; border-left:1px solid #21262d; overflow-y:auto; }
+  .section { padding:1rem; border-bottom:1px solid #21262d; }
+  .section h3 { font-size:0.75rem; color:#8b949e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.7rem; }
+
+  #depth-3d { height:260px; }
+  #cluster-bar { height:200px; }
+
+  .method-block { font-size:0.8rem; color:#8b949e; line-height:1.7; }
+  .method-block code { background:#21262d; padding:0.1rem 0.35rem; border-radius:3px; color:#79c0ff; font-size:0.78rem; }
+  .method-block strong { color:#c9d1d9; }
+
+  select { background:#21262d; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.3rem 0.5rem; font-size:0.82rem; width:100%; }
+
+  #loading { position:fixed; inset:0; background:rgba(13,17,23,0.95); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:9999; text-align:center; }
+  #loading h2 { color:#58a6ff; } #loading p { color:#8b949e; margin-top:0.5rem; }
+  .spinner { width:40px; height:40px; border:3px solid #21262d; border-top-color:#58a6ff; border-radius:50%; animation:spin 0.8s linear infinite; margin:1.5rem auto 0; }
+  @keyframes spin { to{transform:rotate(360deg);} }
+
+  @media(max-width:768px) { .layout{grid-template-columns:1fr;grid-template-rows:55vh 1fr;} }
+</style>
+</head>
+<body>
+<div id="loading">
+  <h2>Loading Southern California Seismicity</h2>
+  <p>Fetching USGS catalog for fault segmentation analysis…</p>
+  <div class="spinner"></div>
+</div>
+
+<header>
+  <h1>ML Fault Segmentation from Seismicity</h1>
+  <p>HDBSCAN 3D clustering applied to precisely located Southern California earthquakes to algorithmically identify active fault segments — including candidates unmapped at the surface.</p>
+  <div class="badges">
+    <span class="badge" style="background:#1f6feb;color:#fff">Python</span>
+    <span class="badge" style="background:#238636;color:#fff">HDBSCAN</span>
+    <span class="badge" style="background:#6e40c9;color:#fff">scikit-learn PCA</span>
+    <span class="badge" style="background:#d29922;color:#fff">SCEC Catalog</span>
+    <a href="https://github.com/kalchikee/ml-fault-segmentation" style="background:#30363d;color:#c9d1d9;padding:0.18rem 0.6rem;border-radius:20px;font-size:0.72rem;font-weight:600;text-decoration:none;">⭐ GitHub</a>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="stat-label">Events loaded</div><div class="stat-value" id="s-events">—</div></div>
+  <div class="stat"><div class="stat-label">Study region</div><div class="stat-value" style="font-size:0.9rem">Southern CA</div></div>
+  <div class="stat"><div class="stat-label">Catalog period</div><div class="stat-value" style="font-size:0.9rem">2015–2023</div></div>
+  <div class="stat"><div class="stat-label">Min magnitude</div><div class="stat-value">M2.0+</div></div>
+  <div class="stat"><div class="stat-label">Data source</div><div class="stat-value" style="font-size:0.85rem">USGS ComCat</div></div>
+</div>
+
+<div class="layout">
+  <div id="map"></div>
+  <div class="sidebar">
+
+    <div class="section">
+      <h3>Display Mode</h3>
+      <select id="display-mode">
+        <option value="depth">Color by depth</option>
+        <option value="magnitude">Color by magnitude</option>
+        <option value="year">Color by year</option>
+      </select>
+    </div>
+
+    <div class="section">
+      <h3>Depth vs. Magnitude (3D proxy)</h3>
+      <div id="depth-3d"></div>
+    </div>
+
+    <div class="section">
+      <h3>Events per Depth Bin</h3>
+      <div id="cluster-bar"></div>
+    </div>
+
+    <div class="section">
+      <h3>Methodology</h3>
+      <div class="method-block">
+        <strong>1. Catalog preparation</strong><br>
+        Download M≥1.0 events with horizontal uncertainty &lt;1 km. Project to <code>UTM Zone 11N</code> for metric clustering.<br><br>
+        <strong>2. HDBSCAN clustering</strong><br>
+        3D feature matrix <code>[x, y, depth×2]</code>. Optimal <code>min_cluster_size=100</code> via silhouette sweep.<br><br>
+        <strong>3. PCA fault planes</strong><br>
+        SVD of each cluster → third eigenvector = fault normal → strike &amp; dip.<br><br>
+        <strong>4. Comparison</strong><br>
+        Detected traces vs USGS Quaternary Fault Database. UNMATCHED clusters = candidate unmapped structures.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const map = L.map('map',{center:[34.5,-117.5],zoom:7,preferCanvas:true});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© CARTO',maxZoom:18}).addTo(map);
+
+// USGS fault traces (via GeoJSON API)
+fetch('https://earthquake.usgs.gov/arcgis/rest/services/eq/hazards_faults/MapServer/0/query?where=1%3D1&outFields=fault_name&geometry=%7B%22xmin%22%3A-122%2C%22ymin%22%3A32%2C%22xmax%22%3A-114%2C%22ymax%22%3A37%7D&geometryType=esriGeometryEnvelope&inSR=4326&outSR=4326&f=geojson&returnGeometry=true')
+  .then(r=>r.json()).then(data=>{
+    if(data.features){
+      L.geoJSON(data,{style:{color:'#ffd700',weight:1.5,opacity:0.6}}).addTo(map).bindPopup(l=>l.feature.properties.fault_name||'Fault');
+    }
+  }).catch(()=>{});
+
+let events=[], markers=[];
+
+function depthColor(d){
+  if(d<5) return '#ff2020';
+  if(d<10) return '#ff7700';
+  if(d<15) return '#ffcc00';
+  if(d<20) return '#44aaff';
+  return '#9944ff';
+}
+function yearColor(t){ const y=(new Date(t).getFullYear()-2015)/8; return `hsl(${Math.round(240*(1-y))},80%,55%)`; }
+function magColor(m){ if(m<3)return'#4393c3'; if(m<4)return'#74add1'; if(m<5)return'#fdae61'; return'#d73027'; }
+function magR(m){ return Math.max(2, 0.8*Math.pow(10,0.5*(m-1))); }
+
+function renderMap(){
+  markers.forEach(m=>map.removeLayer(m)); markers=[];
+  const mode=document.getElementById('display-mode').value;
+  events.forEach(e=>{
+    const c=mode==='depth'?depthColor(e.depth):mode==='year'?yearColor(e.time):magColor(e.mag);
+    const m=L.circleMarker([e.lat,e.lon],{radius:magR(e.mag),fillColor:c,color:'rgba(0,0,0,0.3)',weight:0.4,fillOpacity:0.65})
+      .bindPopup(`<strong>M${e.mag.toFixed(1)}</strong><br>${e.place}<br>Depth: ${e.depth.toFixed(1)} km`).addTo(map);
+    markers.push(m);
+  });
+}
+
+function buildCharts(){
+  // Depth vs magnitude scatter
+  Plotly.newPlot('depth-3d',[{
+    x:events.map(e=>e.mag), y:events.map(e=>e.depth),
+    mode:'markers', type:'scatter',
+    marker:{color:events.map(e=>e.depth),colorscale:'RdYlBu',reversescale:true,size:3,opacity:0.5,
+      colorbar:{thickness:8,len:0.8,tickfont:{size:8},tickcolor:'#8b949e',outlinecolor:'transparent'}},
+  }],{
+    paper_bgcolor:'transparent',plot_bgcolor:'transparent',
+    margin:{t:5,b:35,l:40,r:30},
+    xaxis:{title:'Magnitude',color:'#8b949e',gridcolor:'#21262d',titlefont:{size:9}},
+    yaxis:{title:'Depth (km)',color:'#8b949e',gridcolor:'#21262d',autorange:'reversed',titlefont:{size:9}},
+    font:{color:'#8b949e',size:9},showlegend:false,
+  },{responsive:true,displayModeBar:false});
+
+  // Depth histogram
+  Plotly.newPlot('cluster-bar',[{
+    x:events.map(e=>e.depth), type:'histogram', nbinsx:30,
+    marker:{color:'#58a6ff',opacity:0.75},
+  }],{
+    paper_bgcolor:'transparent',plot_bgcolor:'transparent',
+    margin:{t:5,b:35,l:40,r:5},
+    xaxis:{title:'Depth (km)',color:'#8b949e',gridcolor:'#21262d',titlefont:{size:9}},
+    yaxis:{title:'Count',color:'#8b949e',gridcolor:'#21262d',titlefont:{size:9}},
+    font:{color:'#8b949e',size:9},showlegend:false,
+  },{responsive:true,displayModeBar:false});
+}
+
+(async()=>{
+  try{
+    const url=`https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=2015-01-01&endtime=2023-12-31&minmagnitude=2.0&minlatitude=32&maxlatitude=37&minlongitude=-121&maxlongitude=-114&limit=5000&orderby=time`;
+    const resp=await fetch(url);
+    const data=await resp.json();
+    events=data.features.map(f=>({
+      mag:f.properties.mag,depth:f.geometry.coordinates[2],
+      lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],
+      time:f.properties.time,place:f.properties.place||'',
+    })).filter(e=>e.mag!=null&&e.depth!=null);
+    document.getElementById('s-events').textContent=events.length.toLocaleString();
+    document.getElementById('loading').style.display='none';
+    renderMap(); buildCharts();
+  }catch(e){
+    document.getElementById('loading').innerHTML=`<h2 style="color:#f85149">Error</h2><p>${e.message}</p>`;
+  }
+})();
+
+document.getElementById('display-mode').addEventListener('change',renderMap);
+</script>
+</body>
+</html>
