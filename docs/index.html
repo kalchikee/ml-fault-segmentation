@@ -137,7 +137,7 @@ function depthColor(d){
 }
 function yearColor(t){ const y=(new Date(t).getFullYear()-2015)/8; return `hsl(${Math.round(240*(1-y))},80%,55%)`; }
 function magColor(m){ if(m<3)return'#4393c3'; if(m<4)return'#74add1'; if(m<5)return'#fdae61'; return'#d73027'; }
-function magR(m){ return Math.max(2, 0.8*Math.pow(10,0.5*(m-1))); }
+function magR(m){ return Math.min(18, Math.max(2, (m - 1) * 2.5)); }
 
 function renderMap(){
   markers.forEach(m=>map.removeLayer(m)); markers=[];
